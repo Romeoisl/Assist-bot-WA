@@ -1,0 +1,22 @@
+{
+  "name": "assistbot-v7",
+  "version": "7.0.0",
+  "type": "module",
+  "description": "Full multimodal WhatsApp AI assistant with music playback",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dashboard": "node dashboard.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.25.0",
+    "qrcode-terminal": "^0.12.0",
+    "@google/generative-ai": "^0.21.0",
+    "mime-types": "^2.1.35",
+    "axios": "^1.7.0"
+  },
+  "optionalDependencies": {
+    "express": "^4.21.0",
+    "socket.io": "^4.8.0"
+  }
+}
