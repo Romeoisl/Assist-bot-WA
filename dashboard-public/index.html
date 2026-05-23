@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AssistBot Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+      background: #0b0b1a;
+      color: #d0d0e0;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+    .app { display: flex; height: 100vh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px; background: #111128; border-right: 1px solid #1e1e3a;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 14px 14px; border-bottom: 1px solid #1e1e3a;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sidebar-header h1 {
+      font-size: 16px; font-weight: 700;
+      background: linear-gradient(90deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .status-pill {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; padding: 2px 8px; border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+    }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .pill-dot.connected { background: #34d399; box-shadow: 0 0 6px #34d399; }
+    .pill-dot.connecting { background: #fbbf24; animation: pulse 1s infinite; }
+    .pill-dot.disconnected, .pill-dot.logged-out { background: #f87171; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .sidebar-tabs {
+      display: flex; border-bottom: 1px solid #1e1e3a;
+    }
+    .sidebar-tab {
+      flex: 1; padding: 8px; text-align: center; font-size: 11px;
+      font-weight: 600; cursor: pointer; color: #555;
+      border-bottom: 2px solid transparent; transition: all .15s;
+      background: none; border-top: none; border-left: none; border-right: none;
+    }
+    .sidebar-tab:hover { color: #888; }
+    .sidebar-tab.active { color: #a78bfa; border-bottom-color: #7c3aed; }
+
+    .sidebar-content { flex: 1; overflow-y: auto; }
+
+    /* Chats tab */
+    .chat-list { padding: 0; }
+    .chat-item {
+      padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #16162e;
+      display: flex; gap: 8px; align-items: center; transition: background .12s;
+    }
+    .chat-item:hover { background: rgba(167,139,250,0.04); }
+    .chat-item.active { background: rgba(167,139,250,0.1); border-left: 3px solid #7c3aed; }
+    .chat-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #2a1a5e, #1a3a6e);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; color: #a78bfa; flex-shrink: 0;
+    }
+    .chat-info { flex: 1; min-width: 0; }
+    .chat-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-preview { font-size: 10px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .chat-time { font-size: 9px; color: #555; white-space: nowrap; }
+    .unread-badge { background: #7c3aed; color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 8px; display: inline-block; margin-top: 2px; }
+    .no-items { padding: 24px; text-align: center; color: #444; font-size: 12px; }
+
+    /* ── Sessions Tab ── */
+    .session-list { padding: 8px; }
+    .session-card {
+      background: #0f0f23; border: 1px solid #1e1e3a; border-radius: 8px;
+      padding: 10px; margin-bottom: 8px; cursor: pointer; transition: all .15s;
+    }
+    .session-card:hover { border-color: #333; }
+    .session-card.active { border-color: #7c3aed; background: rgba(124,58,237,0.06); }
+    .session-card .s-name { font-size: 13px; font-weight: 600; }
+    .session-card .s-phone { font-size: 11px; color: #666; margin-top: 2px; }
+    .session-card .s-badge {
+      display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 6px;
+      margin-top: 4px; font-weight: 600;
+    }
+    .session-card .s-badge.registered { background: rgba(52,211,153,0.15); color: #34d399; }
+    .session-card .s-badge.unregistered { background: rgba(251,191,36,0.15); color: #fbbf24; }
+    .session-card .s-badge.active-badge { background: rgba(167,139,250,0.15); color: #a78bfa; }
+
+    .session-actions { display: flex; gap: 4px; margin-top: 6px; }
+    .session-actions button {
+      flex: 1; padding: 4px; border: 1px solid #222; border-radius: 5px;
+      background: transparent; color: #777; font-size: 10px; cursor: pointer;
+    }
+    .session-actions button:hover { border-color: #444; color: #ccc; }
+    .session-actions .danger:hover { border-color: #6a2a2a; color: #f0a0a0; }
+
+    /* ── Logs Tab ── */
+    .logs-container { display: flex; flex-direction: column; height: 100%; }
+    .logs-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 10px; border-bottom: 1px solid #1e1e3a;
+    }
+    .logs-header span { font-size: 11px; color: #666; }
+    .logs-header button {
+      background: none; border: 1px solid #222; color: #777;
+      padding: 2px 10px; border-radius: 5px; font-size: 10px; cursor: pointer;
+    }
+    .logs-header button:hover { border-color: #444; color: #ccc; }
+    .logs-list {
+      flex: 1; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px; padding: 4px 0;
+    }
+    .log-entry {
+      padding: 3px 10px; border-bottom: 1px solid #111;
+      display: flex; gap: 6px; align-items: flex-start;
+    }
+    .log-time { color: #444; white-space: nowrap; font-size: 10px; min-width: 55px; }
+    .log-level {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      min-width: 38px; padding: 1px 3px; border-radius: 3px; text-align: center;
+    }
+    .log-level.info { color: #60a5fa; }
+    .log-level.warn { color: #fbbf24; }
+    .log-level.error { color: #f87171; }
+    .log-level.success { color: #34d399; }
+    .log-source { color: #a78bfa; font-weight: 500; white-space: nowrap; }
+    .log-msg { color: #999; word-break: break-word; flex: 1; }
+
+    .log-filter-row {
+      display: flex; gap: 3px; padding: 4px 8px; border-bottom: 1px solid #1e1e3a;
+    }
+    .log-filter {
+      padding: 2px 8px; border-radius: 6px; font-size: 9px; font-weight: 600;
+      border: 1px solid transparent; cursor: pointer; background: none; color: #555;
+    }
+    .log-filter:hover { color: #888; }
+    .log-filter.active { border-color: #333; color: #aaa; background: rgba(255,255,255,0.03); }
+
+    /* ── Main Area ── */
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .chat-header {
+      padding: 10px 16px; border-bottom: 1px solid #1e1e3a;
+      background: #111128; display: flex; align-items: center;
+      justify-content: space-between;
+    }
+    .chat-header .info { display: flex; align-items: center; gap: 8px; }
+    .chat-header .name { font-weight: 600; font-size: 14px; }
+    .chat-header .jid { font-size: 10px; color: #555; font-family: monospace; }
+    .no-chat-selected {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; color: #444; gap: 8px;
+    }
+    .no-chat-selected .big-icon { font-size: 40px; opacity: 0.3; }
+
+    .messages-area {
+      flex: 1; overflow-y: auto; padding: 12px 16px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .msg-bubble {
+      max-width: 80%; padding: 6px 12px; border-radius: 12px;
+      font-size: 12px; line-height: 1.5; word-wrap: break-word;
+    }
+    .msg-bubble.incoming { align-self: flex-start; background: #1a1a35; border-bottom-left-radius: 3px; }
+    .msg-bubble.outgoing { align-self: flex-end; background: linear-gradient(135deg,#7c3aed,#6366f1); border-bottom-right-radius: 3px; }
+    .msg-bubble .msg-meta { font-size: 9px; color: rgba(255,255,255,0.35); margin-top: 3px; text-align: right; }
+    .msg-bubble .msg-name { font-size: 10px; font-weight: 600; color: #a78bfa; margin-bottom: 2px; }
+    .msg-date-divider { text-align: center; font-size: 10px; color: #555; padding: 8px 0; }
+
+    .input-bar {
+      padding: 10px 16px; border-top: 1px solid #1e1e3a;
+      background: #111128; display: flex; gap: 8px; align-items: flex-end;
+    }
+    .input-bar textarea {
+      flex: 1; background: #0b0b1a; border: 1px solid #222; border-radius: 8px;
+      padding: 8px 12px; color: #d0d0e0; font-size: 12px; resize: none;
+      outline: none; font-family: inherit; max-height: 100px; line-height: 1.4;
+    }
+    .input-bar textarea:focus { border-color: #7c3aed; }
+    .input-bar textarea::placeholder { color: #444; }
+    .input-bar .send-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: linear-gradient(135deg,#7c3aed,#6366f1); color: white;
+      font-size: 16px; cursor: pointer; flex-shrink: 0;
+    }
+    .input-bar .send-btn:disabled { opacity: 0.3; cursor: default; }
+
+    .stats-bar {
+      background: #0d0d20; border-top: 1px solid #1e1e3a;
+      padding: 4px 16px; display: flex; gap: 14px; font-size: 10px;
+      color: #555; flex-wrap: wrap;
+    }
+    .stats-bar strong { color: #888; }
+
+    /* ── Control Panel (top-right area) ── */
+    .control-group {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .ctrl-btn {
+      padding: 4px 10px; border: 1px solid #222; border-radius: 6px;
+      background: transparent; color: #888; font-size: 10px; cursor: pointer;
+      white-space: nowrap; font-weight: 500; transition: all .15s;
+    }
+    .ctrl-btn:hover { border-color: #444; color: #ddd; }
+    .ctrl-btn.primary { border-color: #7c3aed; color: #a78bfa; }
+    .ctrl-btn.primary:hover { background: rgba(124,58,237,0.1); }
+    .ctrl-btn.danger { border-color: #6a2a2a; color: #f0a0a0; }
+    .ctrl-btn.danger:hover { background: rgba(220,38,38,0.1); }
+
+    /* ── QR Overlay ── */
+    .qr-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+      z-index: 1000; align-items: center; justify-content: center;
+    }
+    .qr-overlay.show { display: flex; }
+    .qr-modal {
+      background: #1a1a35; border: 1px solid #333; border-radius: 14px;
+      padding: 28px; text-align: center; max-width: 340px; width: 90%;
+    }
+    .qr-modal h2 { font-size: 16px; margin-bottom: 4px; }
+    .qr-modal .sub { font-size: 12px; color: #777; margin-bottom: 16px; }
+    .qr-modal canvas { max-width: 180px; border-radius: 8px; background: white; padding: 6px; }
+    .qr-modal .close-btn {
+      margin-top: 12px; background: none; border: 1px solid #333;
+      color: #888; padding: 4px 16px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    .qr-modal .pair-input { display: flex; gap: 6px; margin-top: 12px; }
+    .qr-modal .pair-input input {
+      flex: 1; background: #0b0b1a; border: 1px solid #333; border-radius: 6px;
+      padding: 6px 10px; color: #d0d0e0; font-size: 12px; outline: none;
+    }
+    .qr-modal .pair-input button {
+      padding: 6px 14px; border: none; border-radius: 6px;
+      background: linear-gradient(135deg,#7c3aed,#6366f1); color: white; cursor: pointer; font-size: 12px;
+    }
+
+    /* ── Toast ── */
+    .toast-container {
+      position: fixed; top: 12px; right: 12px; z-index: 2000;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .toast {
+      padding: 8px 14px; border-radius: 8px; font-size: 12px;
+      animation: slideIn .2s ease; max-width: 300px;
+    }
+    .toast.info { background: #1a3a6e; border: 1px solid #2a5a9e; color: #a0c0ff; }
+    .toast.success { background: #0a3a2a; border: 1px solid #1a6a4a; color: #6fdaa0; }
+    .toast.error { background: #3a1a1a; border: 1px solid #6a2a2a; color: #f0a0a0; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1>⚡ AssistBot</h1>
+      <div class="status-pill">
+        <span class="pill-dot disconnected" id="pillDot"></span>
+        <span id="pillText">Init</span>
+      </div>
+    </div>
+
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" data-tab="chats">💬 Chats</button>
+      <button class="sidebar-tab" data-tab="sessions">🔐 Accounts</button>
+      <button class="sidebar-tab" data-tab="logs">📋 Logs</button>
+    </div>
+
+    <div class="sidebar-content">
+      <!-- CHATS TAB -->
+      <div class="tab-panel" id="panel-chats">
+        <div class="chat-list" id="chatList">
+          <div class="no-items">Connect the bot to see your chats</div>
+        </div>
+      </div>
+
+      <!-- SESSIONS TAB -->
+      <div class="tab-panel" id="panel-sessions" style="display:none;">
+        <div class="session-list" id="sessionList">
+          <div class="no-items">Loading sessions...</div>
+        </div>
+        <div style="padding:8px;">
+          <button class="ctrl-btn primary" id="addSessionBtn" style="width:100%;padding:6px;font-size:11px;">
+            ➕ Add New Session
+          </button>
+        </div>
+      </div>
+
+      <!-- LOGS TAB -->
+      <div class="tab-panel" id="panel-logs" style="display:none;">
+        <div class="logs-container">
+          <div class="log-filter-row" id="logFilters">
+            <button class="log-filter active" data-level="all">All</button>
+            <button class="log-filter" data-level="info">Info</button>
+            <button class="log-filter" data-level="warn">Warn</button>
+            <button class="log-filter" data-level="error">Error</button>
+            <button class="log-filter" data-level="success">Success</button>
+          </div>
+          <div class="logs-header">
+            <span id="logCount">0 entries</span>
+            <button id="clearLogsBtn">Clear</button>
+          </div>
+          <div class="logs-list" id="logsList">
+            <div class="no-items">Waiting for logs...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <main class="main" id="mainArea">
+    <div class="chat-header" id="chatHeader" style="display:none;">
+      <div class="info">
+        <div class="chat-avatar" id="headerAvatar" style="width:28px;height:28px;font-size:11px;">?</div>
+        <div>
+          <div class="name" id="headerName">Loading...</div>
+          <div class="jid" id="headerJid">—</div>
+        </div>
+      </div>
+      <div class="control-group">
+        <button class="ctrl-btn" id="qrBtn" title="Show QR / Link device">📱 Link</button>
+        <button class="ctrl-btn primary" id="restartBtn" title="Restart bot connection">🔄 Restart</button>
+        <button class="ctrl-btn danger" id="logoutBtn" title="Logout">🚪 Logout</button>
+      </div>
+    </div>
+
+    <div class="no-chat-selected" id="noChatPlaceholder">
+      <div class="big-icon">💬</div>
+      <div>Select a chat to start messaging</div>
+      <div style="font-size:11px;color:#555;">Messages sync in real time</div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="ctrl-btn primary" id="qrBtn2">📱 Link Device</button>
+        <button class="ctrl-btn" id="restartBtn2">🔄 Restart</button>
+      </div>
+    </div>
+
+    <div class="messages-area" id="messagesArea" style="display:none;"></div>
+
+    <div class="input-bar" id="inputBar" style="display:none;">
+      <textarea id="msgInput" rows="1" placeholder="Type a message..." maxlength="4096"></textarea>
+      <button class="send-btn" id="sendBtn" disabled>➤</button>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+      <span>Messages: <strong id="statMsgs">0</strong></span>
+      <span>Contacts: <strong id="statContacts">0</strong></span>
+      <span>Chats: <strong id="statChats">0</strong></span>
+      <span>RAM: <strong id="statRam">0 MB</strong></span>
+      <span>Uptime: <strong id="statUptime">0s</strong></span>
+    </div>
+  </main>
+</div>
+
+<!-- ─── QR Overlay ─── -->
+<div class="qr-overlay" id="qrOverlay">
+  <div class="qr-modal">
+    <h2>📱 Link Device</h2>
+    <p class="sub">Scan the QR code or use a pairing code</p>
+    <div id="qrContainer"><canvas id="qrCanvas"></canvas></div>
+    <p style="font-size:11px;color:#555;margin-top:8px;" id="qrHint">Scan with WhatsApp → Linked Devices → Link a Device</p>
+    <div class="pair-input">
+      <input type="text" id="pairPhoneInput" placeholder="Phone (e.g. 12345678901)" autocomplete="off">
+      <button id="pairBtn">Pair</button>
+    </div>
+    <p style="font-size:10px;color:#444;margin-top:8px;" id="pairCodeDisplay"></p>
+    <button class="close-btn" id="closeQrBtn">Close</button>
+  </div>
+</div>
+
+<!-- ─── Toast ─── -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  const socket = io();
+  const $ = id => document.getElementById(id);
+
+  // ── State ──
+  const state = {
+    contacts: [], chats: [], messages: [], selectedJid: null,
+    currentChatMessages: [], status: 'disconnected', sessions: [],
+    logEntries: [], logFilter: 'all', analytics: {}
+  };
+
+  // ── DOM ──
+  const chatList = $('chatList'), messagesArea = $('messagesArea');
+  const msgInput = $('msgInput'), sendBtn = $('sendBtn');
+  const chatHeader = $('chatHeader'), noChatPlaceholder = $('noChatPlaceholder');
+  const inputBar = $('inputBar'), headerName = $('headerName');
+  const headerJid = $('headerJid'), headerAvatar = $('headerAvatar');
+  const backBtn = $('backBtn'), logsList = $('logsList');
+  const sessionList = $('sessionList'), logCount = $('logCount');
+  const pillDot = $('pillDot'), pillText = $('pillText');
+  const statMsgs = $('statMsgs'), statContacts = $('statContacts');
+  const statChats = $('statChats'), statRam = $('statRam'), statUptime = $('statUptime');
+
+  // ── Utilities ──
+  function toast(msg, type = 'info') {
+    const el = document.createElement('div'); el.className = 'toast ' + type; el.textContent = msg;
+    $('toastContainer').appendChild(el); setTimeout(() => el.remove(), 3500);
+  }
+  function formatTime(ts) {
+    const d = new Date(ts), n = new Date();
+    if (d.toDateString() === n.toDateString()) return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const y = new Date(n); y.setDate(y.getDate()-1);
+    return d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([],{month:'short',day:'numeric'});
+  }
+  function formatDateDivider(ts) {
+    const d = new Date(ts), n = new Date();
+    if (d.toDateString() === n.toDateString()) return 'Today';
+    const y = new Date(n); y.setDate(y.getDate()-1);
+    return d.toDateString() === y.toDateString() ? 'Yesterday' : d.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+  }
+  function fmtBytes(b) { return b ? (b/1024/1024).toFixed(1)+' MB' : '0 MB'; }
+  function fmtUptime(s) {
+    if (s < 60) return Math.floor(s)+'s';
+    if (s < 3600) return Math.floor(s/60)+'m';
+    return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+  }
+  function getAvatar(name, jid) { return (name||jid?.split('@')[0]||'?')[0].toUpperCase(); }
+  function getDisplayName(chat) {
+    if (chat.name) return chat.name;
+    const c = state.contacts.find(x => x.id === chat.id);
+    return c?.name || chat.id?.split('@')[0] || chat.id;
+  }
+  function setStatus(status) {
+    state.status = status;
+    const dots = {connected:'connected',connecting:'connecting','logged-out':'logged-out',disconnected:'disconnected'};
+    const texts = {connected:'Connected',connecting:'Connecting...','logged-out':'Logged Out',disconnected:'Disconnected'};
+    pillDot.className = 'pill-dot '+(dots[status]||'disconnected');
+    pillText.textContent = texts[status]||status;
+  }
+
+  // ── Tab Switching ──
+  document.querySelectorAll('.sidebar-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+      tab.classList.add('active');
+      const panel = $('panel-'+tab.dataset.tab);
+      if (panel) panel.style.display = '';
+    });
+  });
+
+  // ── Render Chat List ──
+  function renderChatList() {
+    let chats = [...state.chats];
+    if (chats.length === 0) { chatList.innerHTML = '<div class="no-items">No chats found</div>'; return; }
+    chatList.innerHTML = chats.map(chat => {
+      const name = getDisplayName(chat), avatar = getAvatar(name, chat.id);
+      const isActive = chat.id === state.selectedJid;
+      return `<div class="chat-item ${isActive?'active':''}" data-jid="${chat.id}">
+        <div class="chat-avatar">${avatar}</div>
+        <div class="chat-info">
+          <div class="chat-name">${chat.isGroup?'👥 ':''}${name}</div>
+        </div>
+        <div class="chat-time">${chat.timestamp ? formatTime(chat.timestamp) : ''}</div>
+        ${chat.unreadCount > 0 ? `<div class="unread-badge">${chat.unreadCount}</div>` : ''}
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.chat-item').forEach(el => {
+      el.addEventListener('click', () => selectChat(el.dataset.jid));
+    });
+  }
+
+  // ── Select Chat ──
+  async function selectChat(jid) {
+    state.selectedJid = jid; state.currentChatMessages = [];
+    chatHeader.style.display = 'flex'; noChatPlaceholder.style.display = 'none';
+    messagesArea.style.display = 'flex'; inputBar.style.display = 'flex';
+    msgInput.disabled = false; sendBtn.disabled = true; msgInput.value = '';
+    const chat = state.chats.find(c => c.id === jid);
+    const name = chat ? getDisplayName(chat) : jid.split('@')[0];
+    headerName.textContent = name; headerJid.textContent = jid;
+    headerAvatar.textContent = getAvatar(name, jid);
+    messagesArea.innerHTML = '<div style="text-align:center;padding:16px;color:#555;">Loading messages...</div>';
+    renderChatList();
+    try {
+      const res = await fetch(`/api/messages?jid=${encodeURIComponent(jid)}`);
+      const msgs = await res.json();
+      state.currentChatMessages = msgs.reverse();
+      renderMessages();
+    } catch { renderMessages(); }
+  }
+
+  function renderMessages() {
+    const msgs = state.currentChatMessages.filter(m => m.jid === state.selectedJid || m.sender === state.selectedJid);
+    if (msgs.length === 0) {
+      messagesArea.innerHTML = '<div style="text-align:center;padding:20px;color:#555;">No messages yet. Start a conversation!</div>';
+      return;
+    }
+    let html = '', lastDate = '';
+    for (const m of msgs) {
+      const d = formatDateDivider(m.timestamp);
+      if (d !== lastDate) { html += `<div class="msg-date-divider">${d}</div>`; lastDate = d; }
+      const cls = !m.fromMe ? 'incoming' : 'outgoing';
+      html += `<div class="msg-bubble ${cls}">
+        ${!m.fromMe && m.isGroup ? `<div class="msg-name">${m.name||m.sender?.split('@')[0]||''}</div>` : ''}
+        ${m.isMedia ? `<span style="display:inline-block;font-size:9px;padding:1px 6px;border-radius:3px;background:rgba(255,255,255,0.08);margin-bottom:3px;">📎 ${m.mediaType||'media'}</span>` : ''}
+        ${m.text||''}
+        <div class="msg-meta">${formatTime(m.timestamp)}</div>
+      </div>`;
+    }
+    messagesArea.innerHTML = html;
+    messagesArea.scrollTop = messagesArea.scrollHeight;
+  }
+
+  // ── Render Sessions ──
+  function renderSessions() {
+    if (!state.sessions.length) { sessionList.innerHTML = '<div class="no-items">No sessions found. Create one to get started.</div>'; return; }
+    sessionList.innerHTML = state.sessions.map(s => `
+      <div class="session-card ${s.isActive?'active':''}" data-session="${s.id}">
+        <div class="s-name">${s.name} ${s.isActive ? '<span class="s-badge active-badge">ACTIVE</span>' : ''}</div>
+        <div class="s-phone">${s.phone || 'Not registered'}</div>
+        <span class="s-badge ${s.registered ? 'registered' : 'unregistered'}">${s.registered ? '✅ Registered' : '⏳ Unregistered'}</span>
+        <div class="session-actions">
+          ${!s.isActive ? `<button class="switch-session" data-session="${s.id}">Switch</button>` : '<button style="opacity:0.3" disabled>Active</button>'}
+          ${!s.isActive ? `<button class="delete-session danger" data-session="${s.id}">Delete</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+    document.querySelectorAll('.switch-session').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation(); const s = b.dataset.session;
+      if (confirm(`Switch to session "${s}"? Bot will restart.`)) socket.emit('switch-session', s);
+    }));
+    document.querySelectorAll('.delete-session').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation(); const s = b.dataset.session;
+      if (confirm(`Delete session "${s}"? This cannot be undone.`)) socket.emit('delete-session', s);
+    }));
+  }
+
+  // ── Render Logs ──
+  function renderLogs() {
+    let entries = state.logEntries;
+    if (state.logFilter !== 'all') entries = entries.filter(e => e.level === state.logFilter);
+    logCount.textContent = entries.length + ' entries';
+    if (!entries.length) { logsList.innerHTML = '<div class="no-items">No log entries</div>'; return; }
+    logsList.innerHTML = entries.slice(-150).map(e => `
+      <div class="log-entry">
+        <span class="log-time">${new Date(e.timestamp).toLocaleTimeString()}</span>
+        <span class="log-level ${e.level}">${e.level}</span>
+        <span class="log-source">${e.source}</span>
+        <span class="log-msg">${e.message}</span>
+      </div>
+    `).join('');
+    logsList.scrollTop = logsList.scrollHeight;
+  }
+
+  // ── Send Message ──
+  function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text || !state.selectedJid) return;
+    sendBtn.disabled = true;
+    socket.emit('send-message', { jid: state.selectedJid, text });
+    msgInput.value = ''; msgInput.style.height = 'auto';
+  }
+
+  // ── Socket Events ──
+  socket.on('qr', (data) => {
+    if (data) { $('qrOverlay').classList.add('show');
+      QRCode.toCanvas($('qrCanvas'), data, { width: 180, margin: 2, color: { dark: '#1a1a3e', light: '#ffffff' } }); setStatus('connecting'); }
+  });
+  socket.on('connection-status', (s) => {
+    setStatus(s);
+    if (s === 'connected') { $('qrOverlay').classList.remove('show'); toast('WhatsApp connected!','success'); }
+    if (s === 'logged-out') toast('Session expired — re-link your device','error');
+  });
+  socket.on('user-jid', (j) => toast(`Logged in as ${j}`,'info'));
+  socket.on('store-data', (data) => {
+    if (data.contacts) state.contacts = data.contacts;
+    if (data.chats) state.chats = data.chats;
+    renderChatList(); updateStats();
+  });
+  socket.on('message-log', (msgs) => {
+    state.messages = msgs;
+    if (state.selectedJid) {
+      state.currentChatMessages = msgs.filter(m => m.jid === state.selectedJid || m.sender === state.selectedJid);
+      renderMessages(); renderChatList();
+    }
+  });
+  socket.on('new-message', (msg) => {
+    state.messages.push(msg);
+    if (state.messages.length > 500) state.messages.shift();
+    if (state.selectedJid && (msg.jid === state.selectedJid || msg.sender === state.selectedJid)) {
+      state.currentChatMessages.push(msg); renderMessages();
+    }
+    renderChatList(); updateStats();
+  });
+  socket.on('analytics', (d) => { state.analytics = d; updateStats(); });
+  socket.on('message-sent', () => { sendBtn.disabled = false; });
+  socket.on('pairing-code', (c) => { $('pairCodeDisplay').textContent = 'Code: '+c; toast(`Pairing code: ${c}`,'info'); });
+  socket.on('error', (m) => toast(m,'error'));
+  socket.on('toast', (t) => toast(t.message, t.type));
+
+  // Sessions
+  socket.on('sessions-list', (s) => { state.sessions = s; renderSessions(); });
+  // Logs
+  socket.on('server-log', (entry) => {
+    state.logEntries.push(entry);
+    if (state.logEntries.length > 2000) state.logEntries.shift();
+    renderLogs();
+  });
+  socket.on('server-log-bulk', (entries) => { state.logEntries = entries; renderLogs(); });
+  socket.on('server-log-cleared', () => { state.logEntries = []; renderLogs(); });
+
+  // ── UI Events ──
+  sidebar-tab for chats, sessions, logs
+  document.querySelectorAll('.sidebar-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+      tab.classList.add('active');
+      const p = $('panel-'+tab.dataset.tab);
+      if (p) { p.style.display = ''; if (tab.dataset.tab === 'logs') renderLogs(); }
+    });
+  });
+
+  // Log filters
+  document.querySelectorAll('.log-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.log-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.logFilter = btn.dataset.level;
+      renderLogs();
+    });
+  });
+
+  // Clear logs
+  $('clearLogsBtn').addEventListener('click', () => socket.emit('clear-logs'));
+
+  // QR overlay
+  $('closeQrBtn').addEventListener('click', () => $('qrOverlay').classList.remove('show'));
+  $('qrOverlay').addEventListener('click', (e) => { if (e.target === $('qrOverlay')) $('qrOverlay').classList.remove('show'); });
+  $('qrBtn').addEventListener('click', () => $('qrOverlay').classList.add('show'));
+  $('qrBtn2').addEventListener('click', () => $('qrOverlay').classList.add('show'));
+  $('pairBtn').addEventListener('click', () => {
+    const phone = $('pairPhoneInput').value.trim();
+    if (!phone) return toast('Enter a phone number','error');
+    socket.emit('pair', phone);
+    $('pairCodeDisplay').textContent = 'Requesting pairing code...';
+    toast('Pairing code requested — check terminal','info');
+  });
+
+  // Restart
+  $('restartBtn').addEventListener('click', () => {
+    if (confirm('Restart bot connection?')) { socket.emit('restart-bot'); toast('Restarting bot...','info'); }
+  });
+  $('restartBtn2').addEventListener('click', () => {
+    if (confirm('Restart bot connection?')) { socket.emit('restart-bot'); toast('Restarting bot...','info'); }
+  });
+
+  // Logout
+  $('logoutBtn').addEventListener('click', () => {
+    if (confirm('Logout from WhatsApp? You will need to scan QR again.')) socket.emit('logout');
+  });
+
+  // Add session
+  $('addSessionBtn').addEventListener('click', () => {
+    const name = prompt('Enter a name for the new session:');
+    if (!name) return;
+    fetch('/api/sessions/switch', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) })
+      .then(r => r.json()).then(d => {
+        if (d.success) toast(`Switched to new session: ${name}`, 'info');
+        else toast(d.error || 'Failed','error');
+      });
+  });
+
+  // Textarea
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 100) + 'px';
+    sendBtn.disabled = !msgInput.value.trim();
+  });
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendBtn.disabled) sendMessage(); }
+  });
+  sendBtn.addEventListener('click', sendMessage);
+
+  // Stats
+  function updateStats() {
+    statMsgs.textContent = state.analytics.totalMessages || 0;
+    statContacts.textContent = state.contacts.length;
+    statChats.textContent = state.chats.length;
+    statRam.textContent = fmtBytes(state.analytics.memory);
+    statUptime.textContent = fmtUptime(state.analytics.uptime);
+  }
+
+  // ── Init ──
+  setStatus('disconnected');
+  toast('Dashboard loaded — waiting for bot connection...', 'info');
+</script>
+
+</body>
+</html>
